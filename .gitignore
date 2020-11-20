@@ -21,3 +21,8 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# extra pkg directory created seemingly by wasm-pack plugin
+# The file pkg/index.js is empty so not sure why it exists
+# (might fix by using npm link)
+pkg/

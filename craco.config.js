@@ -19,10 +19,6 @@ module.exports = {
       webpackConfig.plugins = (webpackConfig.plugins || []).concat([
         new WasmPackPlugin({
           crateDirectory: path.resolve(__dirname, 'src/rust/paint')
-        }),
-        new webpack.ProvidePlugin({
-          TextDecoder: ['text-encoding', 'TextDecoder'],
-          TextEncoder: ['text-encoding', 'TextEncoder']
         })
       ])
 

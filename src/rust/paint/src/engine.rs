@@ -47,114 +47,14 @@ impl Engine {
         // create the render target for canvas composite
         this.borrow_mut().create_canvas_fb()?;
 
-        /*
-         Add handlers
-        */
-        // TODO - use event listeners to drop closures
-        {
-            // window resize - call gl.viewport
-            let this_clone = this.clone();
-            let resize = Closure::wrap(Box::new(move |event: UiEvent| {
-                // TODO - perspective projection, zoom & pan, etc
-                this_clone.borrow().resize_canvas();
-            }) as Box<dyn FnMut(_)>);
-            web_sys::window()
-                .unwrap()
-                .add_event_listener_with_callback("resize", resize.as_ref().unchecked_ref())
-                .map_err(|_| JsValue::from_str("Error adding window onresize listener"))?;
-            resize.forget();
-        }
-        {
-            // mousemove - draw if pressed
-            let this_clone = this.clone();
-            let mouse_move = Closure::wrap(Box::new(move |event: MouseEvent| {
-                if !this_clone.borrow().pointer_state.pressed() {
-                    return;
-                }
-                let (width, height) = this_clone.borrow().get_canvas_size();
-                let offset_x = 2.0 * event.offset_x() as f32 / width - 1.0;
-                let offset_y = -(2.0 * event.offset_y() as f32 / height - 1.0);
-                // console::log_4(
-                //     &"Offset: ".into(),
-                //     &offset_x.into(),
-                //     &", ".into(),
-                //     &offset_y.into(),
-                // );
-                match this_clone.borrow().draw_tri(0.1, offset_x, offset_y) {
-                    Ok(_) => {}
-                    Err(_) => {
-                        console::log_1(&"engine.draw_tri error".into());
-                    }
-                }
-                match this_clone.borrow().draw_canvas() {
-                    Ok(_) => {}
-                    Err(_) => {
-                        console::log_1(&"engine.draw_canvas error".into());
-                    }
-                }
-            }) as Box<dyn FnMut(_)>);
-            this.borrow()
-                .canvas
-                .as_ref()
-                .unwrap()
-                .add_event_listener_with_callback("mousemove", mouse_move.as_ref().unchecked_ref())
-                .map_err(|_| JsValue::from_str("Error adding mousemove listener"))?;
-            mouse_move.forget();
-        }
-        {
-            // mousedown - set pressed
-            let this_clone = this.clone();
-            let mouse_down = Closure::wrap(Box::new(move |event: MouseEvent| {
-                this_clone.borrow_mut().pointer_state.set_pressed(true);
-
-                // draw one triangle at mouse pos
-                let (width, height) = this_clone.borrow().get_canvas_size();
-                let offset_x = 2.0 * event.offset_x() as f32 / width - 1.0;
-                let offset_y = -(2.0 * event.offset_y() as f32 / height - 1.0);
-                // console::log_4(
-                //     &"Offset: ".into(),
-                //     &offset_x.into(),
-                //     &", ".into(),
-                //     &offset_y.into(),
-                // );
-                match this_clone.borrow().draw_tri(0.1, offset_x, offset_y) {
-                    Ok(_) => {}
-                    Err(_) => {
-                        console::log_1(&"engine.draw_tri error".into());
-                    }
-                }
-                match this_clone.borrow().draw_canvas() {
-                    Ok(_) => {}
-                    Err(_) => {
-                        console::log_1(&"engine.draw_canvas error".into());
-                    }
-                }
-            }) as Box<dyn FnMut(_)>);
-            this.borrow()
-                .canvas
-                .as_ref()
-                .unwrap()
-                .add_event_listener_with_callback("mousedown", mouse_down.as_ref().unchecked_ref())
-                .map_err(|_| JsValue::from_str("Error adding mousedown listener"))?;
-            mouse_down.forget();
-        }
-        {
-            // mouseup - unset pressed
-            let this_clone = this.clone();
-            let mouse_up = Closure::wrap(Box::new(move |event: MouseEvent| {
-                this_clone.borrow_mut().pointer_state.set_pressed(false);
-            }) as Box<dyn FnMut(_)>);
-            this.borrow()
-                .canvas
-                .as_ref()
-                .unwrap()
-                .add_event_listener_with_callback("mouseup", mouse_up.as_ref().unchecked_ref())
-                .map_err(|_| JsValue::from_str("Error adding mouseup listener"))?;
-            mouse_up.forget();
-        }
-
+        // compile all shaders
         this.borrow_mut().compile_shaders()?;
+
+        // clear default framebuffer
         this.borrow().clear(1.0, 1.0, 1.0, 1.0);
+
+        // add all event handlers
+        Self::init_handlers(this.clone())?;
         Ok(this)
     }
 
@@ -420,6 +320,116 @@ impl Engine {
         self.quad_program = Some(linked);
         gl.delete_shader(Some(&vert));
         gl.delete_shader(Some(&frag));
+        Ok(())
+    }
+
+    fn init_handlers(this: Rc<RefCell<Self>>) -> Result<(), JsValue> {
+        /*
+         Add handlers
+        */
+        // TODO - use event listeners to drop closures
+        {
+            // window resize - call gl.viewport
+            let this_clone = this.clone();
+            let resize = Closure::wrap(Box::new(move |event: UiEvent| {
+                // TODO - perspective projection, zoom & pan, etc
+                this_clone.borrow().resize_canvas();
+            }) as Box<dyn FnMut(_)>);
+            web_sys::window()
+                .unwrap()
+                .add_event_listener_with_callback("resize", resize.as_ref().unchecked_ref())
+                .map_err(|_| JsValue::from_str("Error adding window onresize listener"))?;
+            resize.forget();
+        }
+        {
+            // mousemove - draw if pressed
+            let this_clone = this.clone();
+            let mouse_move = Closure::wrap(Box::new(move |event: MouseEvent| {
+                if !this_clone.borrow().pointer_state.pressed() {
+                    return;
+                }
+                let (width, height) = this_clone.borrow().get_canvas_size();
+                let offset_x = 2.0 * event.offset_x() as f32 / width - 1.0;
+                let offset_y = -(2.0 * event.offset_y() as f32 / height - 1.0);
+                // console::log_4(
+                //     &"Offset: ".into(),
+                //     &offset_x.into(),
+                //     &", ".into(),
+                //     &offset_y.into(),
+                // );
+                match this_clone.borrow().draw_tri(0.1, offset_x, offset_y) {
+                    Ok(_) => {}
+                    Err(_) => {
+                        console::log_1(&"engine.draw_tri error".into());
+                    }
+                }
+                match this_clone.borrow().draw_canvas() {
+                    Ok(_) => {}
+                    Err(_) => {
+                        console::log_1(&"engine.draw_canvas error".into());
+                    }
+                }
+            }) as Box<dyn FnMut(_)>);
+            this.borrow()
+                .canvas
+                .as_ref()
+                .unwrap()
+                .add_event_listener_with_callback("mousemove", mouse_move.as_ref().unchecked_ref())
+                .map_err(|_| JsValue::from_str("Error adding mousemove listener"))?;
+            mouse_move.forget();
+        }
+        {
+            // mousedown - set pressed
+            let this_clone = this.clone();
+            let mouse_down = Closure::wrap(Box::new(move |event: MouseEvent| {
+                this_clone.borrow_mut().pointer_state.set_pressed(true);
+
+                // draw one triangle at mouse pos
+                let (width, height) = this_clone.borrow().get_canvas_size();
+                let offset_x = 2.0 * event.offset_x() as f32 / width - 1.0;
+                let offset_y = -(2.0 * event.offset_y() as f32 / height - 1.0);
+                // console::log_4(
+                //     &"Offset: ".into(),
+                //     &offset_x.into(),
+                //     &", ".into(),
+                //     &offset_y.into(),
+                // );
+                match this_clone.borrow().draw_tri(0.1, offset_x, offset_y) {
+                    Ok(_) => {}
+                    Err(_) => {
+                        console::log_1(&"engine.draw_tri error".into());
+                    }
+                }
+                match this_clone.borrow().draw_canvas() {
+                    Ok(_) => {}
+                    Err(_) => {
+                        console::log_1(&"engine.draw_canvas error".into());
+                    }
+                }
+            }) as Box<dyn FnMut(_)>);
+            this.borrow()
+                .canvas
+                .as_ref()
+                .unwrap()
+                .add_event_listener_with_callback("mousedown", mouse_down.as_ref().unchecked_ref())
+                .map_err(|_| JsValue::from_str("Error adding mousedown listener"))?;
+            mouse_down.forget();
+        }
+        {
+            // mouseup - unset pressed
+            let this_clone = this.clone();
+            let mouse_up = Closure::wrap(Box::new(move |event: MouseEvent| {
+                this_clone.borrow_mut().pointer_state.set_pressed(false);
+            }) as Box<dyn FnMut(_)>);
+            this.borrow()
+                .canvas
+                .as_ref()
+                .unwrap()
+                .add_event_listener_with_callback("mouseup", mouse_up.as_ref().unchecked_ref())
+                .map_err(|_| JsValue::from_str("Error adding mouseup listener"))?;
+            mouse_up.forget();
+        }
+
         Ok(())
     }
 }

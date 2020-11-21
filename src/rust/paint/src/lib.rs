@@ -44,12 +44,12 @@ impl Painter {
         let gl = Some(get_context(
             canvas.as_ref().unwrap(),
             &ContextOptions {
-                alpha: true,
+                alpha: false,
                 antialias: true,
                 depth: true,
                 powerPreference: "high-performance",
                 preserveDrawingBuffer: false,
-                premultipliedAlpha: true,
+                premultipliedAlpha: false,
             },
         )?);
         // initialize private impl

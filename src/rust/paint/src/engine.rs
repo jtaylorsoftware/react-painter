@@ -14,10 +14,10 @@ use web_sys::{
 pub struct Engine {
     gl: Option<WGL2>,
     canvas: Option<HtmlCanvasElement>,
+    canvas_tex: Option<WebGlTexture>,
     canvas_fb: Option<WebGlFramebuffer>,
-    vert_shader: Option<WebGlShader>,
-    frag_shader: Option<WebGlShader>,
-    program: Option<WebGlProgram>,
+    tri_program: Option<WebGlProgram>,
+    quad_program: Option<WebGlProgram>,
     pointer_state: PointerState,
     brush: Brush,
 }
@@ -30,10 +30,10 @@ impl Engine {
         let this = Rc::new(RefCell::new(Engine {
             gl,
             canvas,
+            canvas_tex: None,
             canvas_fb: None,
-            vert_shader: None,
-            frag_shader: None,
-            program: None,
+            tri_program: None,
+            quad_program: None,
             pointer_state: PointerState::new(),
             brush: Brush::new(&[0.5, 0.5, 0.5, 1.0])?,
         }));
@@ -43,114 +43,117 @@ impl Engine {
 
         // set initial viewport size (initial canvas width &  clientWidth will not match)
         this.borrow().resize_canvas();
-        this.borrow().clear_canvas();
 
         // create the render target for canvas composite
         this.borrow_mut().create_canvas_fb()?;
 
+        /*
+         Add handlers
+        */
+        // TODO - use event listeners to drop closures
         {
-            // add handlers
-            // TODO - use event listeners to drop closures
-            {
-                // window resize - call gl.viewport
-                let this_clone = this.clone();
-                let resize = Closure::wrap(Box::new(move |event: UiEvent| {
-                    // let engine = engine.get_mut();
-                    // engine.resize_canvas();
-                    // engine.clear_canvas();
-                    this_clone.borrow().resize_canvas();
-                }) as Box<dyn FnMut(_)>);
-                web_sys::window()
-                    .unwrap()
-                    .add_event_listener_with_callback("resize", resize.as_ref().unchecked_ref())
-                    .map_err(|_| JsValue::from_str("Error adding window onresize listener"))?;
-                resize.forget();
-            }
-            {
-                // mousemove - draw if pressed
-                let this_clone = this.clone();
-                let mouse_move = Closure::wrap(Box::new(move |event: MouseEvent| {
-                    if !this_clone.borrow().pointer_state.pressed() {
-                        return;
-                    }
-                    let (width, height) = this_clone.borrow().get_canvas_size();
-                    let offset_x = 2.0 * event.offset_x() as f32 / width - 1.0;
-                    let offset_y = -(2.0 * event.offset_y() as f32 / height - 1.0);
-                    // console::log_4(
-                    //     &"Offset: ".into(),
-                    //     &offset_x.into(),
-                    //     &", ".into(),
-                    //     &offset_y.into(),
-                    // );
-                    match this_clone.borrow().draw_tri(0.1, offset_x, offset_y) {
-                        Ok(_) => {}
-                        Err(_) => {
-                            console::log_1(&"engine.draw_tri error".into());
-                        }
-                    }
-                }) as Box<dyn FnMut(_)>);
-                this.borrow()
-                    .canvas
-                    .as_ref()
-                    .unwrap()
-                    .add_event_listener_with_callback(
-                        "mousemove",
-                        mouse_move.as_ref().unchecked_ref(),
-                    )
-                    .map_err(|_| JsValue::from_str("Error adding mousemove listener"))?;
-                mouse_move.forget();
-            }
-            {
-                // mousedown - set pressed
-                let this_clone = this.clone();
-                let mouse_down = Closure::wrap(Box::new(move |event: MouseEvent| {
-                    this_clone.borrow_mut().pointer_state.set_pressed(true);
-
-                    // draw one triangle at mouse pos
-                    let (width, height) = this_clone.borrow().get_canvas_size();
-                    let offset_x = 2.0 * event.offset_x() as f32 / width - 1.0;
-                    let offset_y = -(2.0 * event.offset_y() as f32 / height - 1.0);
-                    // console::log_4(
-                    //     &"Offset: ".into(),
-                    //     &offset_x.into(),
-                    //     &", ".into(),
-                    //     &offset_y.into(),
-                    // );
-                    match this_clone.borrow().draw_tri(0.1, offset_x, offset_y) {
-                        Ok(_) => {}
-                        Err(_) => {
-                            console::log_1(&"engine.draw_tri error".into());
-                        }
-                    }
-                }) as Box<dyn FnMut(_)>);
-                this.borrow()
-                    .canvas
-                    .as_ref()
-                    .unwrap()
-                    .add_event_listener_with_callback(
-                        "mousedown",
-                        mouse_down.as_ref().unchecked_ref(),
-                    )
-                    .map_err(|_| JsValue::from_str("Error adding mousedown listener"))?;
-                mouse_down.forget();
-            }
-            {
-                // mouseup - unset pressed
-                let this_clone = this.clone();
-                let mouse_up = Closure::wrap(Box::new(move |event: MouseEvent| {
-                    this_clone.borrow_mut().pointer_state.set_pressed(false);
-                }) as Box<dyn FnMut(_)>);
-                this.borrow()
-                    .canvas
-                    .as_ref()
-                    .unwrap()
-                    .add_event_listener_with_callback("mouseup", mouse_up.as_ref().unchecked_ref())
-                    .map_err(|_| JsValue::from_str("Error adding mouseup listener"))?;
-                mouse_up.forget();
-            }
-
-            this.borrow_mut().compile_shaders()?;
+            // window resize - call gl.viewport
+            let this_clone = this.clone();
+            let resize = Closure::wrap(Box::new(move |event: UiEvent| {
+                this_clone.borrow().resize_canvas();
+            }) as Box<dyn FnMut(_)>);
+            web_sys::window()
+                .unwrap()
+                .add_event_listener_with_callback("resize", resize.as_ref().unchecked_ref())
+                .map_err(|_| JsValue::from_str("Error adding window onresize listener"))?;
+            resize.forget();
         }
+        {
+            // mousemove - draw if pressed
+            let this_clone = this.clone();
+            let mouse_move = Closure::wrap(Box::new(move |event: MouseEvent| {
+                if !this_clone.borrow().pointer_state.pressed() {
+                    return;
+                }
+                let (width, height) = this_clone.borrow().get_canvas_size();
+                let offset_x = 2.0 * event.offset_x() as f32 / width - 1.0;
+                let offset_y = -(2.0 * event.offset_y() as f32 / height - 1.0);
+                // console::log_4(
+                //     &"Offset: ".into(),
+                //     &offset_x.into(),
+                //     &", ".into(),
+                //     &offset_y.into(),
+                // );
+                match this_clone.borrow().draw_tri(0.1, offset_x, offset_y) {
+                    Ok(_) => {}
+                    Err(_) => {
+                        console::log_1(&"engine.draw_tri error".into());
+                    }
+                }
+                match this_clone.borrow().draw_canvas() {
+                    Ok(_) => {}
+                    Err(_) => {
+                        console::log_1(&"engine.draw_canvas error".into());
+                    }
+                }
+            }) as Box<dyn FnMut(_)>);
+            this.borrow()
+                .canvas
+                .as_ref()
+                .unwrap()
+                .add_event_listener_with_callback("mousemove", mouse_move.as_ref().unchecked_ref())
+                .map_err(|_| JsValue::from_str("Error adding mousemove listener"))?;
+            mouse_move.forget();
+        }
+        {
+            // mousedown - set pressed
+            let this_clone = this.clone();
+            let mouse_down = Closure::wrap(Box::new(move |event: MouseEvent| {
+                this_clone.borrow_mut().pointer_state.set_pressed(true);
+
+                // draw one triangle at mouse pos
+                let (width, height) = this_clone.borrow().get_canvas_size();
+                let offset_x = 2.0 * event.offset_x() as f32 / width - 1.0;
+                let offset_y = -(2.0 * event.offset_y() as f32 / height - 1.0);
+                // console::log_4(
+                //     &"Offset: ".into(),
+                //     &offset_x.into(),
+                //     &", ".into(),
+                //     &offset_y.into(),
+                // );
+                match this_clone.borrow().draw_tri(0.1, offset_x, offset_y) {
+                    Ok(_) => {}
+                    Err(_) => {
+                        console::log_1(&"engine.draw_tri error".into());
+                    }
+                }
+                match this_clone.borrow().draw_canvas() {
+                    Ok(_) => {}
+                    Err(_) => {
+                        console::log_1(&"engine.draw_canvas error".into());
+                    }
+                }
+            }) as Box<dyn FnMut(_)>);
+            this.borrow()
+                .canvas
+                .as_ref()
+                .unwrap()
+                .add_event_listener_with_callback("mousedown", mouse_down.as_ref().unchecked_ref())
+                .map_err(|_| JsValue::from_str("Error adding mousedown listener"))?;
+            mouse_down.forget();
+        }
+        {
+            // mouseup - unset pressed
+            let this_clone = this.clone();
+            let mouse_up = Closure::wrap(Box::new(move |event: MouseEvent| {
+                this_clone.borrow_mut().pointer_state.set_pressed(false);
+            }) as Box<dyn FnMut(_)>);
+            this.borrow()
+                .canvas
+                .as_ref()
+                .unwrap()
+                .add_event_listener_with_callback("mouseup", mouse_up.as_ref().unchecked_ref())
+                .map_err(|_| JsValue::from_str("Error adding mouseup listener"))?;
+            mouse_up.forget();
+        }
+
+        this.borrow_mut().compile_shaders()?;
+        this.borrow().clear(1.0, 1.0, 1.0, 1.0);
         Ok(this)
     }
 
@@ -159,10 +162,16 @@ impl Engine {
         Ok(())
     }
 
+    fn clear(&self, r: f32, g: f32, b: f32, a: f32) {
+        let gl = self.gl.as_ref().unwrap();
+        gl.clear_color(r, g, b, a);
+        gl.clear(WGL2::COLOR_BUFFER_BIT);
+    }
+
     fn set_gl_capabilities(&self) {
         let gl = self.gl.as_ref().unwrap();
         gl.enable(WGL2::BLEND);
-        gl.blend_func(WGL2::ONE, WGL2::ONE_MINUS_SRC_ALPHA);
+        gl.blend_func(WGL2::SRC_ALPHA, WGL2::ONE_MINUS_SRC_ALPHA);
     }
 
     fn get_canvas_size(&self) -> (f32, f32) {
@@ -174,8 +183,9 @@ impl Engine {
 
     fn create_canvas_fb(&mut self) -> Result<(), JsValue> {
         let gl = self.gl.as_ref().unwrap();
-        let width = 800;
-        let height = 800;
+        let canvas = self.canvas.as_ref().unwrap();
+        let width = canvas.width() as i32;
+        let height = canvas.height() as i32;
         let level = 0;
         let border = 0;
         let texture = gl.create_texture();
@@ -215,7 +225,12 @@ impl Engine {
             texture.as_ref(),
             level,
         );
+        gl.viewport(0, 0, width, height);
+        self.clear(1.0, 1.0, 1.0, 1.0);
         gl.bind_framebuffer(WGL2::FRAMEBUFFER, None);
+        gl.bind_texture(WGL2::TEXTURE_2D, None);
+        self.canvas_fb = fb;
+        self.canvas_tex = texture;
         Ok(())
     }
 
@@ -244,19 +259,12 @@ impl Engine {
         gl.viewport(0, 0, client_width as i32, client_height as i32);
     }
 
-    fn clear_canvas(&self) {
-        let gl = self.gl.as_ref().unwrap();
-        // clear to black
-        gl.clear_color(1.0, 1.0, 1.0, 1.0);
-        gl.clear(WGL2::COLOR_BUFFER_BIT);
-    }
-
     fn draw_tri(&self, len: f32, pos_x: f32, pos_y: f32) -> Result<(), JsValue> {
         let gl = self.gl.as_ref().unwrap();
 
         let d = len / 3.0f32.sqrt();
 
-        // ccw vertices
+        // triangle vertices
         let vertices: [f32; 9] = [
             // left
             -d + pos_x,
@@ -288,29 +296,92 @@ impl Engine {
         gl.vertex_attrib_pointer_with_i32(0, 3, WGL2::FLOAT, false, 0, 0);
         gl.enable_vertex_attrib_array(0);
 
-        let program = self.program.as_ref();
+        let program = self.tri_program.as_ref();
         gl.use_program(program);
 
         let uniform_loc = gl.get_uniform_location(program.unwrap(), "color");
         gl.uniform4fv_with_f32_array(uniform_loc.as_ref(), &self.brush.color);
+        // draw to canvas framebuffer
+        gl.bind_framebuffer(WGL2::FRAMEBUFFER, self.canvas_fb.as_ref());
 
-        gl.draw_arrays(WGL2::TRIANGLES, 0, (vertices.len() / 3) as i32);
+        let canvas = self.canvas.as_ref().unwrap();
+        let width = canvas.width() as i32;
+        let height = canvas.height() as i32;
+        gl.viewport(0, 0, width, height);
+
+        gl.draw_arrays(WGL2::TRIANGLES, 0, 3);
+        gl.flush();
+        Ok(())
+    }
+
+    fn draw_canvas(&self) -> Result<(), JsValue> {
+        let gl = self.gl.as_ref().unwrap();
+
+        let vertices: [f32; 24] = [
+            -1.0, 1.0, 0.0, 1.0, //
+            -1.0, -1.0, 0.0, 0.0, //
+            1.0, -1.0, 1.0, 0.0, //
+            -1.0, 1.0, 0.0, 1.0, //
+            1.0, -1.0, 1.0, 0.0, //
+            1.0, 1.0, 1.0, 1.0,
+        ];
+
+        let vert_buffer = gl.create_buffer().ok_or("Failed to create buffer")?;
+        gl.bind_buffer(WGL2::ARRAY_BUFFER, Some(&vert_buffer));
+
+        unsafe {
+            let vert_array = Float32Array::view(&vertices);
+
+            gl.buffer_data_with_array_buffer_view(
+                WGL2::ARRAY_BUFFER,
+                &vert_array,
+                WGL2::STATIC_DRAW,
+            );
+        }
+
+        gl.vertex_attrib_pointer_with_i32(
+            0,
+            2,
+            WGL2::FLOAT,
+            false,
+            4 * 4, /* sizeof float */
+            0,
+        );
+        gl.enable_vertex_attrib_array(0);
+        gl.vertex_attrib_pointer_with_i32(1, 2, WGL2::FLOAT, false, 4 * 4, 2 * 4);
+        gl.enable_vertex_attrib_array(1);
+
+        let program = self.quad_program.as_ref();
+        gl.use_program(program);
+
+        // draw to default framebuffer
+        gl.bind_framebuffer(WGL2::FRAMEBUFFER, None);
+        self.clear(0.0, 0.0, 0.0, 0.0);
+        let canvas = self.canvas.as_ref().unwrap();
+        let width = canvas.width() as i32;
+        let height = canvas.height() as i32;
+        gl.viewport(0, 0, width, height);
+
+        gl.bind_texture(WGL2::TEXTURE_2D, self.canvas_tex.as_ref());
+        gl.draw_arrays(WGL2::TRIANGLES, 0, 6);
+        gl.flush();
         Ok(())
     }
 
     fn compile_shaders(&mut self) -> Result<(), JsValue> {
         let gl = self.gl.as_ref().unwrap();
 
-        // compile shaders
-        let compiled = compile_shader(&gl, WGL2::VERTEX_SHADER, shader::BRUSH_VERTEX_SHADER_SRC)
+        /*
+         Triangle shader
+        */
+        let vert = compile_shader(&gl, WGL2::VERTEX_SHADER, shader::BRUSH_VERTEX_SHADER_SRC)
             .map_err(|shader_log| {
                 JsValue::from_str(
                     format!("Unable to compile vertex shader:\n{}", shader_log).as_str(),
                 )
             })?;
-        self.vert_shader = Some(compiled);
 
-        let compiled = compile_shader(
+        let frag = compile_shader(
             &gl,
             WGL2::FRAGMENT_SHADER,
             shader::BRUSH_FRAGMENT_SHADER_SRC,
@@ -320,14 +391,29 @@ impl Engine {
                 format!("Unable to compile fragment shader:\n{}", shader_log).as_str(),
             )
         })?;
-        self.frag_shader = Some(compiled);
-        let linked = link_program(
-            &gl,
-            self.vert_shader.as_ref().unwrap(),
-            self.frag_shader.as_ref().unwrap(),
-        )
-        .map_err(|_| JsValue::from_str("Unable to link shader program"))?;
-        self.program = Some(linked);
+        let linked = link_program(&gl, &vert, &frag)
+            .map_err(|_| JsValue::from_str("Unable to link shader program"))?;
+        self.tri_program = Some(linked);
+
+        /*
+         Screen quad shader
+        */
+        let vert = compile_shader(&gl, WGL2::VERTEX_SHADER, shader::QUAD_VERTEX_SHADER_SRC)
+            .map_err(|shader_log| {
+                JsValue::from_str(
+                    format!("Unable to compile vertex shader:\n{}", shader_log).as_str(),
+                )
+            })?;
+
+        let frag = compile_shader(&gl, WGL2::FRAGMENT_SHADER, shader::QUAD_FRAGMENT_SHADER_SRC)
+            .map_err(|shader_log| {
+                JsValue::from_str(
+                    format!("Unable to compile fragment shader:\n{}", shader_log).as_str(),
+                )
+            })?;
+        let linked = link_program(&gl, &vert, &frag)
+            .map_err(|_| JsValue::from_str("Unable to link shader program"))?;
+        self.quad_program = Some(linked);
 
         Ok(())
     }

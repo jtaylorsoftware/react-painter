@@ -1,6 +1,6 @@
 use super::brush::Brush;
 use super::pointer_state::PointerState;
-
+use super::shader;
 use js_sys::Float32Array;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -302,45 +302,18 @@ impl Engine {
         let gl = self.gl.as_ref().unwrap();
 
         // compile shaders
-        let compiled = compile_shader(
-            &gl,
-            WGL2::VERTEX_SHADER,
-            r#"#version 300 es
-
-        #ifdef GL_FRAGMENT_PRECISION_HIGH
-            precision highp float;
-        #else
-            precision mediump float;
-        #endif
-        
-        in vec4 position;
-        void main() {
-            gl_Position = position;
-        }
-        "#,
-        )
-        .map_err(|shader_log| {
-            JsValue::from_str(format!("Unable to compile vertex shader:\n{}", shader_log).as_str())
-        })?;
+        let compiled = compile_shader(&gl, WGL2::VERTEX_SHADER, shader::BRUSH_VERTEX_SHADER_SRC)
+            .map_err(|shader_log| {
+                JsValue::from_str(
+                    format!("Unable to compile vertex shader:\n{}", shader_log).as_str(),
+                )
+            })?;
         self.vert_shader = Some(compiled);
 
         let compiled = compile_shader(
             &gl,
             WGL2::FRAGMENT_SHADER,
-            r#"#version 300 es
-
-        #ifdef GL_FRAGMENT_PRECISION_HIGH
-            precision highp float;
-        #else
-            precision mediump float;
-        #endif
-
-        uniform vec4 color;
-        out vec4 out_color;
-        void main() {
-            out_color = color;
-        }
-        "#,
+            shader::BRUSH_FRAGMENT_SHADER_SRC,
         )
         .map_err(|shader_log| {
             JsValue::from_str(

@@ -4,6 +4,7 @@ mod brush;
 mod context;
 mod engine;
 mod pointer_state;
+mod shader;
 use context::{get_context, ContextOptions};
 use engine::Engine;
 

@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{
     console, HtmlCanvasElement, MouseEvent, UiEvent, WebGl2RenderingContext as WGL2,
-    WebGlFramebuffer, WebGlProgram, WebGlShader, WebGlTexture,
+    WebGlFramebuffer, WebGlProgram, WebGlTexture,
 };
 
 pub struct Engine {
@@ -55,6 +55,7 @@ impl Engine {
             // window resize - call gl.viewport
             let this_clone = this.clone();
             let resize = Closure::wrap(Box::new(move |event: UiEvent| {
+                // TODO - perspective projection, zoom & pan, etc
                 this_clone.borrow().resize_canvas();
             }) as Box<dyn FnMut(_)>);
             web_sys::window()
@@ -374,14 +375,15 @@ impl Engine {
         /*
          Triangle shader
         */
-        let vert = compile_shader(&gl, WGL2::VERTEX_SHADER, shader::BRUSH_VERTEX_SHADER_SRC)
-            .map_err(|shader_log| {
-                JsValue::from_str(
-                    format!("Unable to compile vertex shader:\n{}", shader_log).as_str(),
-                )
-            })?;
+        let vert =
+            shader::compile_shader(&gl, WGL2::VERTEX_SHADER, shader::BRUSH_VERTEX_SHADER_SRC)
+                .map_err(|shader_log| {
+                    JsValue::from_str(
+                        format!("Unable to compile vertex shader:\n{}", shader_log).as_str(),
+                    )
+                })?;
 
-        let frag = compile_shader(
+        let frag = shader::compile_shader(
             &gl,
             WGL2::FRAGMENT_SHADER,
             shader::BRUSH_FRAGMENT_SHADER_SRC,
@@ -391,76 +393,44 @@ impl Engine {
                 format!("Unable to compile fragment shader:\n{}", shader_log).as_str(),
             )
         })?;
-        let linked = link_program(&gl, &vert, &frag)
+        let linked = shader::link_program(&gl, &vert, &frag)
             .map_err(|_| JsValue::from_str("Unable to link shader program"))?;
         self.tri_program = Some(linked);
-
+        gl.delete_shader(Some(&vert));
+        gl.delete_shader(Some(&frag));
         /*
          Screen quad shader
         */
-        let vert = compile_shader(&gl, WGL2::VERTEX_SHADER, shader::QUAD_VERTEX_SHADER_SRC)
+        let vert = shader::compile_shader(&gl, WGL2::VERTEX_SHADER, shader::QUAD_VERTEX_SHADER_SRC)
             .map_err(|shader_log| {
                 JsValue::from_str(
                     format!("Unable to compile vertex shader:\n{}", shader_log).as_str(),
                 )
             })?;
 
-        let frag = compile_shader(&gl, WGL2::FRAGMENT_SHADER, shader::QUAD_FRAGMENT_SHADER_SRC)
-            .map_err(|shader_log| {
-                JsValue::from_str(
-                    format!("Unable to compile fragment shader:\n{}", shader_log).as_str(),
-                )
-            })?;
-        let linked = link_program(&gl, &vert, &frag)
+        let frag =
+            shader::compile_shader(&gl, WGL2::FRAGMENT_SHADER, shader::QUAD_FRAGMENT_SHADER_SRC)
+                .map_err(|shader_log| {
+                    JsValue::from_str(
+                        format!("Unable to compile fragment shader:\n{}", shader_log).as_str(),
+                    )
+                })?;
+        let linked = shader::link_program(&gl, &vert, &frag)
             .map_err(|_| JsValue::from_str("Unable to link shader program"))?;
         self.quad_program = Some(linked);
-
+        gl.delete_shader(Some(&vert));
+        gl.delete_shader(Some(&frag));
         Ok(())
     }
 }
 
-fn compile_shader(gl: &WGL2, shader_type: u32, source: &str) -> Result<WebGlShader, String> {
-    let shader = gl
-        .create_shader(shader_type)
-        .ok_or_else(|| String::from("Unable to create shader object"))?;
-    gl.shader_source(&shader, source);
-    gl.compile_shader(&shader);
-
-    if gl
-        .get_shader_parameter(&shader, WGL2::COMPILE_STATUS)
-        .as_bool()
-        .unwrap_or(false)
-    {
-        Ok(shader)
-    } else {
-        Err(gl
-            .get_shader_info_log(&shader)
-            .unwrap_or_else(|| String::from("Unknown error creating shader")))
-    }
-}
-
-fn link_program(
-    gl: &WGL2,
-    vert_shader: &WebGlShader,
-    frag_shader: &WebGlShader,
-) -> Result<WebGlProgram, String> {
-    let program = gl
-        .create_program()
-        .ok_or_else(|| String::from("Unable to create shader object"))?;
-
-    gl.attach_shader(&program, vert_shader);
-    gl.attach_shader(&program, frag_shader);
-    gl.link_program(&program);
-
-    if gl
-        .get_program_parameter(&program, WGL2::LINK_STATUS)
-        .as_bool()
-        .unwrap_or(false)
-    {
-        Ok(program)
-    } else {
-        Err(gl
-            .get_program_info_log(&program)
-            .unwrap_or_else(|| String::from("Unknown error creating program object")))
+impl Drop for Engine {
+    fn drop(&mut self) {
+        let gl = self.gl.as_ref().unwrap();
+        // TODO - safely delete everything
+        gl.delete_program(self.tri_program.as_ref());
+        gl.delete_program(self.quad_program.as_ref());
+        gl.delete_framebuffer(self.canvas_fb.as_ref());
+        gl.delete_texture(self.canvas_tex.as_ref());
     }
 }

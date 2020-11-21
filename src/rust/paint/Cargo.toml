@@ -38,8 +38,10 @@ features = [
   'UiEvent',
   'WebGlBuffer',
   'WebGl2RenderingContext',
+  'WebGlFramebuffer',
   'WebGlProgram',
   'WebGlShader',
   'WebGlUniformLocation',
+  'WebGlTexture',
   'Window',
 ]
